@@ -28,7 +28,14 @@ const authenticateToken = async (req: Request, res: Response, next: NextFunction
     return;
   }
 
-  const secret = process.env[secretName] || process.env.JWT_SECRET || (secretName === 'JWT_ACCESS_SECRET' ? 'orderflow-access-dev-secret' : 'orderflow-refresh-dev-secret');
+  const envSecret = process.env[secretName]?.trim() || process.env.JWT_SECRET?.trim();
+  if (process.env.NODE_ENV === 'production' && (!envSecret || envSecret.length < 32)) {
+    res.status(500).json({ status: 'error', message: 'Authentication service misconfigured.' });
+    return;
+  }
+  const secret =
+    envSecret ||
+    (secretName === 'JWT_ACCESS_SECRET' ? 'orderflow-access-dev-secret' : 'orderflow-refresh-dev-secret');
 
   try {
     const payload = jwt.verify(token, secret) as AuthTokenPayload;

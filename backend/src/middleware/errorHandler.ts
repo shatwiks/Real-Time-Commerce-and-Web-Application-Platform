@@ -13,6 +13,8 @@ export const errorHandler = (err: any, _req: Request, res: Response, _next: Next
   const isJsonParseError = err instanceof SyntaxError && 'body' in err;
   const message = isJsonParseError
     ? 'Invalid JSON in request body.'
+    : status >= 500 && process.env.NODE_ENV === 'production'
+    ? 'Internal server error'
     : err?.message || 'Internal server error';
 
   res.status(status).json({

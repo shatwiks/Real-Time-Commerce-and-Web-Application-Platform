@@ -10,7 +10,7 @@ const registerSchema = z.object({
   password: z.string().min(8, 'Password must be at least 8 characters.'),
   firstName: z.string().trim().optional(),
   lastName: z.string().trim().optional(),
-  role: z.enum(['CUSTOMER', 'RESTAURANT_OWNER', 'ADMIN']).optional().default('CUSTOMER'),
+  role: z.enum(['CUSTOMER', 'RESTAURANT_OWNER']).optional().default('CUSTOMER'),
 });
 
 const loginSchema = z.object({
@@ -41,23 +41,39 @@ const userSelect = {
   updatedAt: true,
 } as const;
 
+const resolveJwtSecret = (envKeys: string[], devFallback: string): string => {
+  for (const key of envKeys) {
+    const val = process.env[key]?.trim();
+    if (val) {
+      if (process.env.NODE_ENV === 'production' && val.length < 32) {
+        throw new Error(`CRITICAL SECURITY VIOLATION: ${key} must be at least 32 characters in production.`);
+      }
+      return val;
+    }
+  }
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(`CRITICAL SECURITY VIOLATION: Missing required JWT secret (${envKeys.join(' or ')}) in production.`);
+  }
+  return devFallback;
+};
+
 const signAccessToken = (user: { id: string; email: string; role: string }) => {
-  const secret = process.env.JWT_ACCESS_SECRET || process.env.JWT_SECRET || 'orderflow-access-dev-secret';
+  const secret = resolveJwtSecret(['JWT_ACCESS_SECRET', 'JWT_SECRET'], 'orderflow-access-dev-secret');
   return jwt.sign({ sub: user.id, email: user.email, role: user.role }, secret, { expiresIn: '15m' });
 };
 
 const signRefreshToken = (user: { id: string; email: string; role: string }) => {
-  const secret = process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET || 'orderflow-refresh-dev-secret';
+  const secret = resolveJwtSecret(['JWT_REFRESH_SECRET', 'JWT_SECRET'], 'orderflow-refresh-dev-secret');
   return jwt.sign({ sub: user.id, email: user.email, role: user.role }, secret, { expiresIn: '7d' });
 };
 
 const signPreAuthToken = (userId: string) => {
-  const secret = process.env.PREAUTH_SECRET || process.env.JWT_ACCESS_SECRET || process.env.JWT_SECRET || 'orderflow-preauth-dev-secret';
+  const secret = resolveJwtSecret(['PREAUTH_SECRET', 'JWT_ACCESS_SECRET', 'JWT_SECRET'], 'orderflow-preauth-dev-secret');
   return jwt.sign({ sub: userId, stage: 'AWAITING_2FA' }, secret, { expiresIn: '5m' });
 };
 
 const verifyPreAuthToken = (token: string): { userId: string } | null => {
-  const secret = process.env.PREAUTH_SECRET || process.env.JWT_ACCESS_SECRET || process.env.JWT_SECRET || 'orderflow-preauth-dev-secret';
+  const secret = resolveJwtSecret(['PREAUTH_SECRET', 'JWT_ACCESS_SECRET', 'JWT_SECRET'], 'orderflow-preauth-dev-secret');
   try {
     const decoded = jwt.verify(token, secret) as { sub?: string; stage?: string };
     if (!decoded.sub || decoded.stage !== 'AWAITING_2FA') {

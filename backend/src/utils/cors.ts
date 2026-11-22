@@ -21,30 +21,27 @@ export const isOriginAllowed = (origin: string | undefined): boolean => {
     return true;
   }
 
+  const isProd = process.env.NODE_ENV === 'production';
   const envOrigins = (process.env.CORS_ORIGIN ?? '')
     .split(',')
-    .map((o) => o.trim())
-    .filter(Boolean);
+    .map((o) => o.trim().replace(/\/+$/, ''))
+    .filter((o) => o && (!isProd || o !== '*'));
 
   const allowedList = [...DEFAULT_ALLOWED_ORIGINS, ...envOrigins];
+  const normalizedOrigin = origin.replace(/\/+$/, '');
 
-  // Direct match or wildcard in configuration
-  if (allowedList.includes(origin) || allowedList.includes('*')) {
+  // Explicit allowlist match (never allow wildcard '*' in production with credentials)
+  if (allowedList.includes(normalizedOrigin) || (!isProd && allowedList.includes('*'))) {
     return true;
   }
 
-  // Any localhost or 127.0.0.1 on any port
-  if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+  // Localhost only in development/test
+  if (!isProd && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(normalizedOrigin)) {
     return true;
   }
 
-  // Any Vercel deployment preview or production domain (*.vercel.app)
-  if (/^https:\/\/([a-zA-Z0-9_-]+\.)?vercel\.app$/.test(origin)) {
-    return true;
-  }
-
-  // Render domains (*.onrender.com)
-  if (/^https:\/\/([a-zA-Z0-9_-]+\.)?onrender\.com$/.test(origin)) {
+  // Only allow this project's own Vercel preview deployments
+  if (/^https:\/\/food-full-stack-kappa(?:-[a-zA-Z0-9-]+)?\.vercel\.app$/.test(normalizedOrigin)) {
     return true;
   }
 

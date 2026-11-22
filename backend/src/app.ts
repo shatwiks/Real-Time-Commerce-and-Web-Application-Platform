@@ -9,6 +9,24 @@ import { orderRouter } from './routes/orders.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 export const app = express();
+const isProd = process.env.NODE_ENV === 'production';
+
+app.disable('x-powered-by');
+if (isProd) {
+  app.set('trust proxy', 1);
+}
+
+// Defense-in-depth HTTP security headers
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  if (isProd) {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  next();
+});
 
 app.use(
   cors({
@@ -27,7 +45,32 @@ app.use(
   })
 );
 
-app.use(express.json());
+// Sliding-window per-IP rate limiter for auth endpoints (bypassed in automated tests)
+if (process.env.NODE_ENV !== 'test') {
+  const authBuckets = new Map<string, { count: number; start: number }>();
+  const WINDOW_MS = 60 * 1000;
+  app.use('/api/auth', (req, res, next) => {
+    const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+    const now = Date.now();
+    if (authBuckets.size > 10000) {
+      for (const [k, v] of authBuckets.entries()) {
+        if (now - v.start >= WINDOW_MS) authBuckets.delete(k);
+      }
+    }
+    const entry = authBuckets.get(ip);
+    if (!entry || now - entry.start >= WINDOW_MS) {
+      authBuckets.set(ip, { count: 1, start: now });
+      return next();
+    }
+    entry.count += 1;
+    if (entry.count > 25) {
+      return res.status(429).json({ status: 'error', message: 'Too many authentication requests. Please retry shortly.' });
+    }
+    return next();
+  });
+}
+
+app.use(express.json({ limit: '100kb' }));
 app.use('/', healthRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/restaurants', restaurantRouter);
